@@ -124,6 +124,37 @@ Fabric Spine-Leaf sendiri **tidak melakukan inspeksi keamanan** — ia murni for
 - **Palo Alto**: satu zone/interface menghadap sisi client (Distribution switch campus — BYOD/WiFi/IoT), satu zone/interface menghadap sisi server (Leaf server/Server VRF). Semua trafik client→server di-route melalui Palo Alto sebagai default gateway L3 untuk subnet client, sehingga tidak ada jalur pintas yang melewatkan firewall.
 - Untuk HA, kedua firewall sebaiknya dipasang sebagai **cluster aktif-pasif atau aktif-aktif** (lihat Bagian 10).
 
+### 5.4 Diagram Topologi
+
+Diagram di bawah ini menggunakan sintaks **Mermaid**, yang otomatis dirender sebagai gambar oleh GitHub langsung di halaman repository — tidak perlu tool tambahan.
+
+```mermaid
+graph TD
+    INET[Internet] --> FGT["FortiGate<br/>Internet Gateway"]
+    FGT --> BL[Border Leaf]
+    BL --> SP1[Spine 1]
+    BL --> SP2[Spine 2]
+    SP1 --> LF1[Leaf Server 1]
+    SP1 --> LF2[Leaf Server 2]
+    SP2 --> LF1
+    SP2 --> LF2
+    LF1 --> SRV["Servers & Storage"]
+    LF2 --> SRV
+    BL --> PA["Palo Alto<br/>Client-Server Firewall"]
+    PA --> DIST[Distribution Switch]
+    DIST --> WLC[Wireless Controller]
+    DIST --> IOTGW[IoT Gateway]
+    WLC --> BYOD[BYOD Devices]
+    IOTGW --> IOTDEV[IoT Devices]
+```
+
+**Versi interaktif:** file [`topologi-interaktif.html`](./topologi-interaktif.html) di repository ini berisi diagram yang sama dalam bentuk halaman web interaktif (klik node untuk detail, toggle per-layer, hover untuk menyorot koneksi).
+
+> **Catatan penting soal GitHub:** GitHub men-sanitasi (menghapus) tag `<script>` saat menampilkan file `.html` langsung di halaman repository/README, sehingga interaktivitasnya **tidak akan berjalan** jika dibuka lewat tombol "view file" biasa di GitHub. Untuk melihatnya secara interaktif, gunakan salah satu cara berikut:
+> 1. **GitHub Pages** (direkomendasikan) — aktifkan di *Settings → Pages*, lalu akses `https://<username>.github.io/<repo>/topologi-interaktif.html`.
+> 2. **Buka lokal** — clone repo, lalu buka file `.html` langsung di browser.
+> 3. **htmlpreview.github.io** — tempel URL raw file GitHub ke `https://htmlpreview.github.io/?<url-raw-file>` untuk preview cepat tanpa setup Pages.
+
 ## 6. Underlay Network
 
 Underlay adalah jaringan fisik/IP yang menghubungkan seluruh Spine dan Leaf. Tujuannya adalah menyediakan **IP reachability** antar seluruh perangkat fabric dengan performa ECMP penuh.
