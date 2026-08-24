@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Topologi Spine-Leaf Datacenter — Interaktif</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0A0E13;
+    --panel:#111820;
+    --panel-2:#161F29;
+    --line:#232E3A;
+    --text:#E7EBEF;
+    --text-dim:#8A94A0;
+    --fabric:#2BC6B0;
+    --fabric-dim:rgba(43,198,176,0.12);
+    --security:#E2653A;
+    --security-dim:rgba(226,101,58,0.12);
+    --access:#9C8CFF;
+    --access-dim:rgba(156,140,255,0.12);
+    --neutral:#8A94A0;
+    --neutral-dim:rgba(138,148,160,0.10);
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:'IBM Plex Mono', ui-monospace, Consolas, monospace;
+    min-height:100vh;
+  }
+  header{
+    padding:28px 32px 18px;
+    border-bottom:1px solid var(--line);
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    flex-wrap:wrap;
+    gap:16px;
+  }
+  .title-block h1{
+    font-family:'Space Grotesk', sans-serif;
+    font-weight:700;
+    font-size:22px;
+    margin:0 0 4px;
+    letter-spacing:-0.01em;
+  }
+  .title-block p{
+    margin:0;
+    font-size:13px;
+    color:var(--text-dim);
+  }
+  .status{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    font-size:12px;
+    color:var(--text-dim);
+    text-transform:uppercase;
+    letter-spacing:0.08em;
+  }
+  .dot{
+    width:8px;height:8px;border-radius:50%;
+    background:var(--fabric);
+    box-shadow:0 0 0 0 rgba(43,198,176,0.6);
+    animation:pulse 2s infinite;
+  }
+  @keyframes pulse{
+    0%{box-shadow:0 0 0 0 rgba(43,198,176,0.5);}
+    70%{box-shadow:0 0 0 8px rgba(43,198,176,0);}
+    100%{box-shadow:0 0 0 0 rgba(43,198,176,0);}
+  }
+  @media (prefers-reduced-motion: reduce){ .dot{animation:none;} }
+
+  .controls{
+    padding:16px 32px;
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap;
+    border-bottom:1px solid var(--line);
+  }
+  .chip{
+    font-family:inherit;
+    font-size:12px;
+    padding:8px 14px;
+    border-radius:999px;
+    border:1px solid var(--line);
+    background:var(--panel);
+    color:var(--text-dim);
+    cursor:pointer;
+    transition:all .15s ease;
+    display:flex;align-items:center;gap:7px;
+  }
+  .chip .sw{width:8px;height:8px;border-radius:50%;background:var(--neutral);}
+  .chip[data-layer="fabric"] .sw{background:var(--fabric);}
+  .chip[data-layer="security"] .sw{background:var(--security);}
+  .chip[data-layer="access"] .sw{background:var(--access);}
+  .chip.active{
+    color:var(--text);
+    border-color:currentColor;
+    background:var(--panel-2);
+  }
+  .chip:hover{border-color:var(--text-dim);}
+
+  main{
+    display:grid;
+    grid-template-columns:1fr 320px;
+    gap:0;
+  }
+  @media (max-width:880px){
+    main{grid-template-columns:1fr;}
+  }
+
+  .canvas-wrap{
+    padding:24px;
+    overflow-x:auto;
+  }
+
+  .node{cursor:pointer;}
+  .node rect{
+    transition:filter .15s ease, opacity .2s ease, stroke-width .15s ease;
+  }
+  .node text{font-family:'IBM Plex Mono', monospace;}
+  .node .label{font-size:13px;font-weight:600;fill:var(--text);}
+  .node .sub{font-size:10.5px;fill:var(--text-dim);}
+  .node.dim{opacity:0.18;}
+  .node.dim text{opacity:0.5;}
+  .node:hover rect, .node.selected rect{
+    filter:drop-shadow(0 0 8px currentColor);
+  }
+  .node.selected rect{stroke-width:2;}
+
+  .link{
+    fill:none;
+    stroke:var(--line);
+    stroke-width:1.4;
+    transition:stroke .15s ease, opacity .2s ease, stroke-width .15s ease;
+  }
+  .link.dim{opacity:0.12;}
+  .link.lit{stroke:var(--fabric);stroke-width:2;}
+
+  .panel{
+    border-left:1px solid var(--line);
+    padding:24px;
+    background:var(--panel);
+  }
+  .panel h2{
+    font-family:'Space Grotesk', sans-serif;
+    font-size:16px;
+    margin:0 0 4px;
+  }
+  .panel .tag{
+    display:inline-block;
+    font-size:10.5px;
+    text-transform:uppercase;
+    letter-spacing:0.08em;
+    padding:3px 8px;
+    border-radius:5px;
+    margin-bottom:14px;
+  }
+  .panel p{
+    font-size:13px;
+    line-height:1.65;
+    color:var(--text-dim);
+    margin:0;
+  }
+  .panel .empty{
+    font-size:13px;
+    color:var(--text-dim);
+    line-height:1.7;
+  }
+  .legend{
+    padding:20px 32px 28px;
+    display:flex;
+    gap:22px;
+    flex-wrap:wrap;
+    font-size:12px;
+    color:var(--text-dim);
+    border-top:1px solid var(--line);
+  }
+  .legend span{display:flex;align-items:center;gap:7px;}
+  .legend .sw{width:9px;height:9px;border-radius:50%;}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="title-block">
+    <h1>Topologi Spine-Leaf Datacenter</h1>
+    <p>Fabric, internet gateway, dan jaringan akses — klik node untuk detail</p>
+  </div>
+  <div class="status"><span class="dot"></span> Fabric operational</div>
+</header>
+
+<div class="controls" id="controls">
+  <button class="chip active" data-layer="all"><span class="sw"></span>Semua layer</button>
+  <button class="chip" data-layer="security"><span class="sw"></span>Internet &amp; keamanan</button>
+  <button class="chip" data-layer="fabric"><span class="sw"></span>Fabric datacenter</button>
+  <button class="chip" data-layer="access"><span class="sw"></span>Akses &amp; endpoint</button>
+</div>
+
+<main>
+  <div class="canvas-wrap">
+    <svg id="topo" width="100%" viewBox="0 0 960 700" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Diagram topologi Spine-Leaf datacenter interaktif">
+
+      <g id="links"></g>
+
+      <g id="nodes">
+        <g class="node" data-id="internet" data-layer="neutral" transform="translate(395,20)">
+          <rect width="170" height="54" rx="9" fill="var(--neutral-dim)" stroke="var(--neutral)" stroke-width="1.2" color="var(--neutral)"/>
+          <text class="label" x="85" y="24" text-anchor="middle" dominant-baseline="central">Internet</text>
+          <text class="sub" x="85" y="40" text-anchor="middle" dominant-baseline="central">WAN publik</text>
+        </g>
+
+        <g class="node" data-id="fortigate" data-layer="security" transform="translate(395,110)">
+          <rect width="170" height="60" rx="9" fill="var(--security-dim)" stroke="var(--security)" stroke-width="1.2" color="var(--security)"/>
+          <text class="label" x="85" y="26" text-anchor="middle" dominant-baseline="central">FortiGate</text>
+          <text class="sub" x="85" y="42" text-anchor="middle" dominant-baseline="central">Gateway, NAT, VPN, IPS</text>
+        </g>
+
+        <g class="node" data-id="borderleaf" data-layer="fabric" transform="translate(395,210)">
+          <rect width="170" height="60" rx="9" fill="var(--fabric-dim)" stroke="var(--fabric)" stroke-width="1.2" color="var(--fabric)"/>
+          <text class="label" x="85" y="26" text-anchor="middle" dominant-baseline="central">Border leaf</text>
+          <text class="sub" x="85" y="42" text-anchor="middle" dominant-baseline="central">Handoff eksternal</text>
+        </g>
+
+        <g class="node" data-id="spine1" data-layer="fabric" transform="translate(140,300)">
+          <rect width="170" height="60" rx="9" fill="var(--fabric-dim)" stroke="var(--fabric)" stroke-width="1.2" color="var(--fabric)"/>
+          <text class="label" x="85" y="26" text-anchor="middle" dominant-baseline="central">Spine 1</text>
+          <text class="sub" x="85" y="42" text-anchor="middle" dominant-baseline="central">Backbone ECMP</text>
+        </g>
+        <g class="node" data-id="spine2" data-layer="fabric" transform="translate(340,300)">
+          <rect width="170" height="60" rx="9" fill="var(--fabric-dim)" stroke="var(--fabric)" stroke-width="1.2" color="var(--fabric)"/>
+          <text class="label" x="85" y="26" text-anchor="middle" dominant-baseline="central">Spine 2</text>
+          <text class="sub" x="85" y="42" text-anchor="middle" dominant-baseline="central">Backbone ECMP</text>
+        </g>
+
+        <g class="node" data-id="leaf1" data-layer="fabric" transform="translate(100,400)">
+          <rect width="170" height="60" rx="9" fill="var(--fabric-dim)" stroke="var(--fabric)" stroke-width="1.2" color="var(--fabric)"/>
+          <text class="label" x="85" y="26" text-anchor="middle" dominant-baseline="central">Leaf server 1</text>
+          <text class="sub" x="85" y="42" text-anchor="middle" dominant-baseline="central">Rack A &amp; B</text>
+        </g>
+        <g class="node" data-id="leaf2" data-layer="fabric" transform="translate(300,400)">
+          <rect width="170" height="60" rx="9" fill="var(--fabric-dim)" stroke="var(--fabric)" stroke-width="1.2" color="var(--fabric)"/>
+          <text class="label" x="85" y="26" text-anchor="middle" dominant-baseline="central">Leaf server 2</text>
+          <text class="sub" x="85" y="42" text-anchor="middle" dominant-baseline="central">Rack C &amp; D</text>
+        </g>
+
+        <g class="node" data-id="servers" data-layer="fabric" transform="translate(140,500)">
+          <rect width="290" height="60" rx="9" fill="var(--fabric-dim)" stroke="var(--fabric)" stroke-width="1.2" color="var(--fabric)"/>
+          <text class="label" x="145" y="26" text-anchor="middle" dominant-baseline="central">Servers &amp; storage</text>
+          <text class="sub" x="145" y="42" text-anchor="middle" dominant-baseline="central">Compute, VM, data</text>
+        </g>
+
+        <g class="node" data-id="paloalto" data-layer="security" transform="translate(610,300)">
+          <rect width="190" height="60" rx="9" fill="var(--security-dim)" stroke="var(--security)" stroke-width="1.2" color="var(--security)"/>
+          <text class="label" x="95" y="26" text-anchor="middle" dominant-baseline="central">Palo Alto</text>
+          <text class="sub" x="95" y="42" text-anchor="middle" dominant-baseline="central">Firewall client-server</text>
+        </g>
+
+        <g class="node" data-id="distribution" data-layer="access" transform="translate(610,400)">
+          <rect width="190" height="60" rx="9" fill="var(--access-dim)" stroke="var(--access)" stroke-width="1.2" color="var(--access)"/>
+          <text class="label" x="95" y="26" text-anchor="middle" dominant-baseline="central">Distribution switch</text>
+          <text class="sub" x="95" y="42" text-anchor="middle" dominant-baseline="central">Jaringan kampus</text>
+        </g>
+
+        <g class="node" data-id="wlc" data-layer="access" transform="translate(520,500)">
+          <rect width="170" height="60" rx="9" fill="var(--access-dim)" stroke="var(--access)" stroke-width="1.2" color="var(--access)"/>
+          <text class="label" x="85" y="26" text-anchor="middle" dominant-baseline="central">Wireless controller</text>
+          <text class="sub" x="85" y="42" text-anchor="middle" dominant-baseline="central">BYOD &amp; guest WiFi</text>
+        </g>
+        <g class="node" data-id="iotgw" data-layer="access" transform="translate(720,500)">
+          <rect width="170" height="60" rx="9" fill="var(--access-dim)" stroke="var(--access)" stroke-width="1.2" color="var(--access)"/>
+          <text class="label" x="85" y="26" text-anchor="middle" dominant-baseline="central">IoT gateway</text>
+          <text class="sub" x="85" y="42" text-anchor="middle" dominant-baseline="central">Segmentasi VLAN/VNI</text>
+        </g>
+
+        <g class="node" data-id="byod" data-layer="access" transform="translate(520,590)">
+          <rect width="170" height="60" rx="9" fill="var(--access-dim)" stroke="var(--access)" stroke-width="1.2" color="var(--access)"/>
+          <text class="label" x="85" y="26" text-anchor="middle" dominant-baseline="central">Perangkat BYOD</text>
+          <text class="sub" x="85" y="42" text-anchor="middle" dominant-baseline="central">Laptop &amp; ponsel</text>
+        </g>
+        <g class="node" data-id="iotdev" data-layer="access" transform="translate(720,590)">
+          <rect width="170" height="60" rx="9" fill="var(--access-dim)" stroke="var(--access)" stroke-width="1.2" color="var(--access)"/>
+          <text class="label" x="85" y="26" text-anchor="middle" dominant-baseline="central">Perangkat IoT</text>
+          <text class="sub" x="85" y="42" text-anchor="middle" dominant-baseline="central">Sensor &amp; kamera</text>
+        </g>
+      </g>
+    </svg>
+  </div>
+
+  <div class="panel" id="panel">
+    <div class="empty">Klik salah satu node pada diagram untuk melihat penjelasan fungsinya di sini. Gunakan tombol layer di atas untuk fokus pada bagian tertentu topologi.</div>
+  </div>
+</main>
+
+<div class="legend">
+  <span><span class="sw" style="background:var(--neutral)"></span>Netral / eksternal</span>
+  <span><span class="sw" style="background:var(--security)"></span>Keamanan (FortiGate, Palo Alto)</span>
+  <span><span class="sw" style="background:var(--fabric)"></span>Fabric datacenter (Spine-Leaf)</span>
+  <span><span class="sw" style="background:var(--access)"></span>Akses &amp; endpoint (BYOD, WiFi, IoT)</span>
+</div>
+
+<script>
+const details = {
+  internet: {
+    title: "Internet",
+    tag: "Netral",
+    color: "var(--neutral)",
+    text: "Jaringan WAN publik. Menjadi satu-satunya titik keluar-masuk untuk seluruh trafik north-south fabric datacenter."
+  },
+  fortigate: {
+    title: "FortiGate",
+    tag: "Keamanan — internet gateway",
+    color: "var(--security)",
+    text: "Bertindak sebagai internet gateway: menangani NAT/PAT, VPN site-to-site dan remote-access, serta IPS/IDS untuk memfilter ancaman dari luar. Semua trafik north-south wajib melewatinya sebelum masuk fabric."
+  },
+  borderleaf: {
+    title: "Border leaf",
+    tag: "Fabric datacenter",
+    color: "var(--fabric)",
+    text: "Leaf khusus yang menjadi titik penghubung fabric ke dunia luar: ke FortiGate (internet) di satu sisi, dan ke Palo Alto (jaringan akses) di sisi lain."
+  },
+  spine1: {
+    title: "Spine 1",
+    tag: "Fabric datacenter",
+    color: "var(--fabric)",
+    text: "Backbone fabric. Forwarding murni antar Leaf dengan ECMP — setiap Spine terhubung ke seluruh Leaf, tidak pernah langsung ke server."
+  },
+  spine2: {
+    title: "Spine 2",
+    tag: "Fabric datacenter",
+    color: "var(--fabric)",
+    text: "Spine kedua untuk redundansi dan penambahan bandwidth. Traffic terdistribusi merata ke semua Spine lewat ECMP."
+  },
+  leaf1: {
+    title: "Leaf server 1",
+    tag: "Fabric datacenter",
+    color: "var(--fabric)",
+    text: "Top-of-Rack switch untuk rack A dan B, dengan uplink penuh ke setiap Spine (non-blocking)."
+  },
+  leaf2: {
+    title: "Leaf server 2",
+    tag: "Fabric datacenter",
+    color: "var(--fabric)",
+    text: "Top-of-Rack switch untuk rack C dan D, dengan uplink penuh ke setiap Spine (non-blocking)."
+  },
+  servers: {
+    title: "Servers & storage",
+    tag: "Fabric datacenter",
+    color: "var(--fabric)",
+    text: "Workload komputasi, virtualisasi, dan penyimpanan data yang berjalan di rack, terhubung langsung ke Leaf server."
+  },
+  paloalto: {
+    title: "Palo Alto",
+    tag: "Keamanan — segmentasi client-server",
+    color: "var(--security)",
+    text: "Firewall inline yang menginspeksi seluruh trafik dari jaringan akses (BYOD, WiFi, IoT) menuju server, menggunakan App-ID dan User-ID untuk kontrol berbasis aplikasi dan identitas, bukan hanya port/IP."
+  },
+  distribution: {
+    title: "Distribution switch",
+    tag: "Akses & endpoint",
+    color: "var(--access)",
+    text: "Titik agregasi jaringan kampus, menghubungkan Wireless Controller dan IoT Gateway ke fabric melalui Palo Alto."
+  },
+  wlc: {
+    title: "Wireless controller",
+    tag: "Akses & endpoint",
+    color: "var(--access)",
+    text: "Mengatur access point WiFi untuk perangkat BYOD dan tamu, dengan autentikasi 802.1X / NAC sebelum diberi akses jaringan."
+  },
+  iotgw: {
+    title: "IoT gateway",
+    tag: "Akses & endpoint",
+    color: "var(--access)",
+    text: "Titik masuk untuk sensor dan perangkat IoT. Disegmentasi ketat pada VLAN/VNI terpisah dan dibatasi hanya ke platform yang benar-benar dibutuhkan."
+  },
+  byod: {
+    title: "Perangkat BYOD",
+    tag: "Akses & endpoint",
+    color: "var(--access)",
+    text: "Laptop dan ponsel pribadi pengguna yang terhubung lewat WiFi korporat atau guest, dipisah dari segmen server dan IoT."
+  },
+  iotdev: {
+    title: "Perangkat IoT",
+    tag: "Akses & endpoint",
+    color: "var(--access)",
+    text: "Sensor, kamera, dan perangkat pintar lain. Rawan disusupi karena firmware jarang diperbarui, sehingga diisolasi lewat microsegmentation."
+  }
+};
+
+const links = [
+  ["internet","fortigate"],
+  ["fortigate","borderleaf"],
+  ["borderleaf","spine1"],
+  ["borderleaf","spine2"],
+  ["spine1","leaf1"],["spine1","leaf2"],
+  ["spine2","leaf1"],["spine2","leaf2"],
+  ["leaf1","servers"],["leaf2","servers"],
+  ["borderleaf","paloalto"],
+  ["paloalto","distribution"],
+  ["distribution","wlc"],["distribution","iotgw"],
+  ["wlc","byod"],["iotgw","iotdev"]
+];
+
+const nodeEls = {};
+document.querySelectorAll('.node').forEach(n => nodeEls[n.dataset.id] = n);
+
+function centerOf(id){
+  const n = nodeEls[id];
+  const t = n.getAttribute('transform');
+  const m = t.match(/translate\(([\d.-]+),([\d.-]+)\)/);
+  const x = parseFloat(m[1]), y = parseFloat(m[2]);
+  const rect = n.querySelector('rect');
+  const w = parseFloat(rect.getAttribute('width')), h = parseFloat(rect.getAttribute('height'));
+  return {x: x + w/2, y: y + h/2, top: {x: x+w/2, y}, bottom: {x: x+w/2, y: y+h}};
+}
+
+const linksGroup = document.getElementById('links');
+const linkEls = [];
+links.forEach(([a,b]) => {
+  const ca = centerOf(a), cb = centerOf(b);
+  const startY = ca.y < cb.y ? ca.bottom.y : ca.top.y;
+  const endY = ca.y < cb.y ? cb.top.y : cb.bottom.y;
+  const path = document.createElementNS('http://www.w3.org/2000/svg','line');
+  path.setAttribute('x1', ca.x);
+  path.setAttribute('y1', startY);
+  path.setAttribute('x2', cb.x);
+  path.setAttribute('y2', endY);
+  path.classList.add('link');
+  path.dataset.a = a;
+  path.dataset.b = b;
+  linksGroup.appendChild(path);
+  linkEls.push(path);
+});
+
+const panel = document.getElementById('panel');
+function showDetail(id){
+  const d = details[id];
+  panel.innerHTML =
+    '<span class="tag" style="background:'+d.color+'22;color:'+d.color+'">'+d.tag+'</span>'+
+    '<h2>'+d.title+'</h2>'+
+    '<p>'+d.text+'</p>';
+}
+
+let selected = null;
+document.querySelectorAll('.node').forEach(n => {
+  n.addEventListener('click', () => {
+    if(selected) selected.classList.remove('selected');
+    n.classList.add('selected');
+    selected = n;
+    showDetail(n.dataset.id);
+  });
+  n.addEventListener('mouseenter', () => highlightConnections(n.dataset.id, true));
+  n.addEventListener('mouseleave', () => highlightConnections(n.dataset.id, false));
+});
+
+function highlightConnections(id, on){
+  linkEls.forEach(l => {
+    if(l.dataset.a === id || l.dataset.b === id){
+      l.classList.toggle('lit', on);
+    }
+  });
+}
+
+const chips = document.querySelectorAll('.chip');
+chips.forEach(chip => {
+  chip.addEventListener('click', () => {
+    chips.forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    const layer = chip.dataset.layer;
+    document.querySelectorAll('.node').forEach(n => {
+      const nl = n.dataset.layer;
+      const match = layer === 'all' || nl === layer || (layer==='security' && nl==='security') || (nl==='neutral' && layer==='security');
+      n.classList.toggle('dim', !(layer==='all' || nl===layer || (nl==='neutral')));
+    });
+    linkEls.forEach(l => {
+      const na = nodeEls[l.dataset.a].dataset.layer;
+      const nb = nodeEls[l.dataset.b].dataset.layer;
+      const relevant = layer === 'all' || na === layer || nb === layer || na==='neutral' || nb==='neutral';
+      l.classList.toggle('dim', !relevant);
+    });
+  });
+});
+</script>
+
+</body>
+</html>
