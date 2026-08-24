@@ -104,6 +104,26 @@ Digunakan pada datacenter skala besar (hyperscale) yang memiliki banyak **pod** 
 
 Digunakan ketika jumlah port di Spine sudah tidak cukup untuk menampung seluruh Leaf dalam satu tingkat.
 
+### 5.3 Integrasi Firewall: FortiGate (Internet Gateway) dan Palo Alto (Segmentasi Client-Server)
+
+Fabric Spine-Leaf sendiri **tidak melakukan inspeksi keamanan** — ia murni forwarding L2/L3 berkecepatan tinggi. Karena itu, firewall harus ditempatkan secara eksplisit di titik-titik strategis dalam desain. Dalam desain ini digunakan dua firewall dengan peran berbeda:
+
+| Firewall | Peran | Posisi dalam topologi |
+|---|---|---|
+| **FortiGate** | Internet Edge Gateway — NAT, VPN, IPS/IDS, filtering trafik north-south dari/ke internet | Di depan **Border Leaf**, antara ISP/Internet dan fabric datacenter |
+| **Palo Alto** | Segmentasi keamanan client-ke-server (east-west/north-south internal) — App-ID, User-ID, microsegmentation | Inline antara jaringan akses (campus/BYOD/WiFi/IoT) dan **Server Leaf**, sebelum trafik client menyentuh server |
+
+**Mengapa dipisah menjadi dua firewall dengan peran berbeda?**
+- **FortiGate** dioptimalkan untuk fungsi gateway internet: NAT/PAT, site-to-site & remote-access VPN, web filtering, dan IPS terhadap ancaman dari luar. Ia menjadi satu-satunya pintu keluar/masuk fabric ke internet — semua trafik north-south wajib melewatinya.
+- **Palo Alto** difokuskan sebagai firewall segmentasi internal dengan kemampuan **App-ID** dan **User-ID**, sehingga bisa membedakan aplikasi/user spesifik (bukan cuma port/IP) saat client (laptop BYOD, AP wireless, gateway IoT) mengakses server di datacenter. Ini penting karena ancaman terbesar pada jaringan modern sering datang dari **internal** (device BYOD/IoT yang sudah disusupi), bukan hanya dari internet.
+- Memisahkan tanggung jawab ini juga mengurangi beban satu firewall tunggal dan membatasi *blast radius* — jika satu segmen (misal IoT) disusupi, Palo Alto mencegah pergerakan lateral ke server sebelum ancaman itu bisa keluar lewat FortiGate ke internet.
+
+**Cara integrasi ke fabric (mode routed/Layer 3):**
+- Kedua firewall dijalankan dalam **mode routed (L3)**, terhubung sebagai next-hop pada Border Leaf melalui VRF/VLAN dedicated, bukan disisipkan secara transparan di jalur data switch-to-switch.
+- **FortiGate**: satu interface menghadap ISP/internet (WAN), satu interface menghadap Border Leaf (LAN side fabric). Static default route atau BGP peering opsional ke ISP.
+- **Palo Alto**: satu zone/interface menghadap sisi client (Distribution switch campus — BYOD/WiFi/IoT), satu zone/interface menghadap sisi server (Leaf server/Server VRF). Semua trafik client→server di-route melalui Palo Alto sebagai default gateway L3 untuk subnet client, sehingga tidak ada jalur pintas yang melewatkan firewall.
+- Untuk HA, kedua firewall sebaiknya dipasang sebagai **cluster aktif-pasif atau aktif-aktif** (lihat Bagian 10).
+
 ## 6. Underlay Network
 
 Underlay adalah jaringan fisik/IP yang menghubungkan seluruh Spine dan Leaf. Tujuannya adalah menyediakan **IP reachability** antar seluruh perangkat fabric dengan performa ECMP penuh.
@@ -284,12 +304,98 @@ show l2route evpn mac all
 
 > **Catatan:** Sintaks di atas menggunakan gaya Cisco NX-OS sebagai referensi konsep. Vendor lain seperti Arista (EOS), Juniper (Junos/Junos Evolved), dan platform open-source seperti Cumulus Linux / SONiC memiliki sintaks berbeda namun konsep underlay-overlay-nya identik.
 
+### 9.5 Contoh Konfigurasi FortiGate (Internet Gateway)
+
+Konfigurasi dasar interface WAN/LAN dan policy NAT keluar (internet edge), menggunakan CLI FortiOS:
+
+```
+config system interface
+    edit "wan1"
+        set ip 203.0.113.2/30
+        set allowaccess ping
+        set role wan
+    next
+    edit "lan-fabric"
+        set ip 10.100.0.1/24
+        set allowaccess ping https ssh
+        set role lan
+    next
+end
+
+! Default route ke ISP
+config router static
+    edit 1
+        set gateway 203.0.113.1
+        set device "wan1"
+    next
+end
+
+! Policy NAT untuk trafik keluar dari fabric ke internet
+config firewall policy
+    edit 1
+        set name "Fabric-to-Internet"
+        set srcintf "lan-fabric"
+        set dstintf "wan1"
+        set srcaddr "Fabric-Subnet"
+        set dstaddr "all"
+        set action accept
+        set schedule "always"
+        set service "ALL"
+        set nat enable
+        set utm-status enable
+        set ips-sensor "default"
+        set av-profile "default"
+    next
+end
+```
+
+### 9.6 Contoh Konfigurasi Palo Alto (Segmentasi Client-Server)
+
+Konfigurasi zone dan security policy yang membatasi akses client (BYOD/WiFi/IoT) ke server berdasarkan aplikasi spesifik, menggunakan sintaks CLI PAN-OS:
+
+```
+# Definisi zone
+set zone client-zone network layer3 ethernet1/1
+set zone server-zone network layer3 ethernet1/2
+
+# IP interface tiap zone
+set network interface ethernet1/1 layer3 ip 10.50.0.1/24
+set network interface ethernet1/2 layer3 ip 10.60.0.1/24
+
+# Address object
+set address "Client-BYOD-WiFi" ip-netmask 10.50.10.0/24
+set address "Client-IoT" ip-netmask 10.50.20.0/24
+set address "Server-App-Tier" ip-netmask 10.60.10.0/24
+
+# Security policy: hanya izinkan aplikasi spesifik dari client ke server
+set rulebase security rules "Client-to-Server-App" from client-zone to server-zone \
+    source "Client-BYOD-WiFi" destination "Server-App-Tier" \
+    application [ ssl web-browsing ms-rdp ] \
+    service application-default action allow \
+    log-end yes profile-setting group "default-security-profiles"
+
+# Blokir eksplisit trafik dari segmen IoT ke server kecuali port yang dibutuhkan
+set rulebase security rules "IoT-to-Server-Restricted" from client-zone to server-zone \
+    source "Client-IoT" destination "Server-App-Tier" \
+    application [ mqtt ] \
+    service application-default action allow \
+    log-end yes
+
+# Deny-all default (eksplisit, best practice)
+set rulebase security rules "Deny-All-Else" from client-zone to server-zone \
+    source any destination any application any service any action deny log-end yes
+```
+
+> **Catatan:** Palo Alto ditempatkan sebagai gateway L3 untuk subnet client (10.50.0.0/16) sehingga seluruh trafik client menuju server **wajib** melewati firewall ini — tidak ada static route alternatif yang memotong jalur inspeksi.
+
 ## 10. High Availability dan Redundansi
 
 - **Multi-homing server**: server dihubungkan ke 2 Leaf berbeda menggunakan **MLAG** (Multi-Chassis LAG) atau **EVPN ESI Multi-homing**, sehingga jika satu Leaf down, server tetap terhubung via Leaf lainnya.
 - **Redundansi Spine**: minimal 2 Spine untuk menghindari single point of failure; idealnya 4 atau lebih untuk beban traffic besar.
 - **BFD (Bidirectional Forwarding Detection)**: dipasang di atas BGP untuk mempercepat deteksi kegagalan link (sub-second failover) dibanding default BGP hold-timer.
 - **Border Leaf redundant**: gunakan minimal 2 Border Leaf untuk koneksi keluar (WAN/DCI) agar tidak ada single point of failure saat menghubungkan ke luar fabric.
+- **FortiGate HA**: gunakan minimal 2 unit dalam **FGCP cluster** (mode aktif-pasif atau aktif-aktif) agar internet gateway tidak menjadi single point of failure.
+- **Palo Alto HA**: gunakan **HA pair** (aktif-pasif dengan session sync, atau aktif-aktif untuk throughput lebih tinggi) agar inspeksi client-to-server tetap berjalan saat salah satu unit down — jangan sampai kegagalan firewall justru memutus akses client ke seluruh server.
 
 ## 11. Monitoring dan Troubleshooting
 
